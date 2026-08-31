@@ -1,44 +1,63 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Configure single-node FDB cluster
-FDB_DATA="/bao/data/fdb"
-FDB_LOG="/var/log/foundationdb"
+TLS_DIR="/bao/data/tls"
+mkdir -p "$TLS_DIR" /etc/foundationdb
 
-# Create cluster file if not present (single-node)
-if [ ! -f /etc/foundationdb/fdb.cluster ]; then
-  mkdir -p /etc/foundationdb
-  desc=$(dd if=/dev/urandom bs=8 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n' | head -c 16)
-  id=$(dd if=/dev/urandom bs=8 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n' | head -c 16)
-  echo "${desc}:${id}@127.0.0.1:4500" > /etc/foundationdb/fdb.cluster
-  chmod 644 /etc/foundationdb/fdb.cluster
+if [ -z "${FDB_CLUSTER_CONTENT:-}" ]; then
+  echo "FATAL: FDB_CLUSTER_CONTENT not set" >&2
+  exit 1
 fi
+echo "$FDB_CLUSTER_CONTENT" > /etc/foundationdb/fdb.cluster
+chmod 644 /etc/foundationdb/fdb.cluster
 
-mkdir -p "$FDB_DATA" "$FDB_LOG"
+for var in FDB_TLS_CERT_B64 FDB_TLS_KEY_B64 FDB_TLS_CA_B64; do
+  if [ -z "${!var:-}" ]; then
+    echo "FATAL: $var not set" >&2
+    exit 1
+  fi
+done
 
-# Start FDB server in single-node mode
-/usr/sbin/fdbserver \
-  --listen-address 0.0.0.0:4500 \
-  --public-address 127.0.0.1:4500 \
-  --datadir "$FDB_DATA" \
-  --logdir "$FDB_LOG" \
-  --class storage \
-  &
+echo "$FDB_TLS_CERT_B64" | base64 -d > "$TLS_DIR/cert.pem"
+echo "$FDB_TLS_KEY_B64"  | base64 -d > "$TLS_DIR/key.pem"
+echo "$FDB_TLS_CA_B64"   | base64 -d > "$TLS_DIR/ca.pem"
+chmod 600 "$TLS_DIR/key.pem"
 
-FDB_PID=$!
+CERT_CN=$(openssl x509 -in "$TLS_DIR/cert.pem" -noout -subject 2>/dev/null | sed 's/.*CN *= *//')
+echo "FDB client cert CN=$CERT_CN"
 
-# Wait for FDB to be ready
+export FDB_TLS_CERTIFICATE_FILE="$TLS_DIR/cert.pem"
+export FDB_TLS_KEY_FILE="$TLS_DIR/key.pem"
+export FDB_TLS_CA_FILE="$TLS_DIR/ca.pem"
+export FDB_TLS_VERIFY_PEERS="Check.Valid=1,S.CN>=fdb-,S.CN<=.chibifire.com"
+
+for var in BAO_TLS_CERT_B64 BAO_TLS_KEY_B64 BAO_TLS_CA_CHAIN_B64; do
+  if [ -z "${!var:-}" ]; then
+    echo "FATAL: $var not set" >&2
+    exit 1
+  fi
+done
+
+echo "$BAO_TLS_CERT_B64"      | base64 -d > "$TLS_DIR/listener-cert.pem"
+echo "$BAO_TLS_KEY_B64"       | base64 -d > "$TLS_DIR/listener-key.pem"
+echo "$BAO_TLS_CA_CHAIN_B64"  | base64 -d > "$TLS_DIR/ca-chain.pem"
+chmod 600 "$TLS_DIR/listener-key.pem"
+
+LISTENER_CN=$(openssl x509 -in "$TLS_DIR/listener-cert.pem" -noout -subject 2>/dev/null | sed 's/.*CN *= *//')
+echo "Bao listener cert CN=$LISTENER_CN"
+
+echo "Waiting for FDB cluster..."
 for i in $(seq 1 30); do
   if fdbcli --exec "status minimal" 2>/dev/null | grep -q "available"; then
+    echo "FDB cluster available"
     break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "FATAL: FDB cluster not available after 30s" >&2
+    fdbcli --exec "status details" 2>&1 || true
+    exit 1
   fi
   sleep 1
 done
 
-# Configure the database (idempotent)
-fdbcli --exec "configure new single ssd" 2>/dev/null || true
-
-echo "FoundationDB ready"
-
-# Start OpenBao
 exec dumb-init bao server -config=/bao/config/config.hcl

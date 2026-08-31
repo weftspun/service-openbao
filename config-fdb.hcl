@@ -6,10 +6,17 @@ storage "foundationdb" {
 }
 
 listener "tcp" {
-  address     = "[::]:8200"
+  address            = "[::]:8200"
+  tls_cert_file      = "/bao/data/tls/listener-cert.pem"
+  tls_key_file       = "/bao/data/tls/listener-key.pem"
+  tls_client_ca_file = "/bao/data/tls/ca-chain.pem"
+}
+
+listener "tcp" {
+  address     = "[::]:8300"
   tls_disable = true
 }
 
-api_addr      = "http://weftspun-bao.internal:8200"
-cluster_addr  = "http://weftspun-bao.internal:8201"
+api_addr      = "https://weftspun-bao.internal:8200"
+cluster_addr  = "https://weftspun-bao.internal:8201"
 ui            = false

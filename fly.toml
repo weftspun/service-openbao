@@ -5,9 +5,9 @@ primary_region = 'sjc'
   dockerfile = 'Dockerfile.fdb'
 
 [env]
-  BAO_ADDR = 'http://0.0.0.0:8200'
-  BAO_API_ADDR = 'http://weftspun-bao.internal:8200'
-  BAO_CLUSTER_ADDR = 'http://weftspun-bao.internal:8201'
+  BAO_ADDR = 'https://[::]:8200'
+  BAO_API_ADDR = 'https://weftspun-bao.internal:8200'
+  BAO_CLUSTER_ADDR = 'https://weftspun-bao.internal:8201'
 
 [[mounts]]
   source = 'bao_data'
