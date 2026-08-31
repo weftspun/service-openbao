@@ -1,0 +1,28 @@
+app = 'weftspun-bao'
+primary_region = 'sjc'
+
+[build]
+  dockerfile = 'Dockerfile.fdb'
+
+[env]
+  BAO_ADDR = 'http://0.0.0.0:8200'
+  BAO_API_ADDR = 'http://weftspun-bao.internal:8200'
+  BAO_CLUSTER_ADDR = 'http://weftspun-bao.internal:8201'
+
+[[mounts]]
+  source = 'bao_data'
+  destination = '/bao/data'
+
+[[services]]
+  protocol = 'tcp'
+  internal_port = 8200
+  auto_stop_machines = 'suspend'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 8200
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'

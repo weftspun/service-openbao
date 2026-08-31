@@ -1,0 +1,43 @@
+FROM golang:1.27-bookworm AS builder
+
+ARG FDB_VERSION=7.3.79
+
+RUN curl -fSL "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb" \
+      -o /tmp/fdb-clients.deb && \
+    dpkg -i /tmp/fdb-clients.deb && \
+    rm /tmp/fdb-clients.deb
+
+WORKDIR /build
+
+ARG CACHEBUST=3
+RUN git clone --depth 1 -b feat/foundationdb-storage https://github.com/weftspun/openbao.git .
+
+RUN GOFLAGS=-tags=foundationdb go get github.com/apple/foundationdb/bindings/go@v0.0.0-20260715201227-0074653ee011 && \
+    go mod tidy
+
+RUN CGO_ENABLED=1 go build -tags 'foundationdb openbao' -o /usr/bin/bao .
+
+FROM debian:bookworm-slim
+
+ARG FDB_VERSION=7.3.79
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates dumb-init procps && \
+    curl -fSL "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb" \
+      -o /tmp/fdb-clients.deb && \
+    curl -fSL "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb" \
+      -o /tmp/fdb-server.deb && \
+    dpkg -i /tmp/fdb-clients.deb /tmp/fdb-server.deb || true && \
+    apt-get install -f -y && \
+    rm /tmp/fdb-*.deb && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/bin/bao /usr/bin/bao
+RUN mkdir -p /bao/config /bao/data /var/lib/foundationdb/data /var/log/foundationdb
+
+COPY config-fdb.hcl /bao/config/config.hcl
+COPY entrypoint-fdb.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 8200 8201
+ENTRYPOINT ["/entrypoint.sh"]
