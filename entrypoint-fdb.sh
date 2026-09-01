@@ -60,4 +60,12 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
+# BAO_RECOVERY=1 launches in recovery mode for orphan token cleanup / root
+# regeneration. Recovery mode authenticates with the unseal key rather than a
+# token, which is the intended path when the root token is lost. Set this as
+# a fly secret when needed, redeploy, purge, unset, redeploy.
+if [ "${BAO_RECOVERY:-0}" = 1 ]; then
+  echo "STARTING IN RECOVERY MODE"
+  exec dumb-init bao server -recovery -config=/bao/config/config.hcl
+fi
 exec dumb-init bao server -config=/bao/config/config.hcl
