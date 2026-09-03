@@ -1,6 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Tailscale sidecar (RFD 2195): private access from operator's tailnet peers.
+# Fail-open: if TS_AUTHKEY is unset, Bao starts without Tailscale (internal
+# Fly network still works). A future unset thus rolls back cleanly without
+# breaking Bao.
+if [ -n "${TS_AUTHKEY:-}" ]; then
+  echo "Starting Tailscale sidecar..."
+  mkdir -p /var/lib/tailscale /var/run/tailscale
+  /usr/sbin/tailscaled \
+      --state=/var/lib/tailscale/tailscaled.state \
+      --socket=/var/run/tailscale/tailscaled.sock \
+      --tun=userspace-networking &
+  sleep 2
+  tailscale up \
+      --authkey="${TS_AUTHKEY}" \
+      --hostname=weftspun-bao \
+      --advertise-tags=tag:fly-bao \
+      --accept-dns=false || echo "WARN: tailscale up failed; Bao continues"
+else
+  echo "TS_AUTHKEY not set; Tailscale sidecar not started"
+fi
+
 TLS_DIR="/bao/data/tls"
 mkdir -p "$TLS_DIR" /etc/foundationdb
 
