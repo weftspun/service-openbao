@@ -13,11 +13,17 @@ if [ -n "${TS_AUTHKEY:-}" ]; then
       --socket=/var/run/tailscale/tailscaled.sock \
       --tun=userspace-networking &
   sleep 2
-  tailscale up \
-      --authkey="${TS_AUTHKEY}" \
-      --hostname=weftspun-bao \
-      --advertise-tags=tag:fly-bao \
-      --accept-dns=false || echo "WARN: tailscale up failed; Bao continues"
+  # Timeout + background so a broken tag / bad key / control-plane hiccup
+  # never blocks Bao startup. Fail-open per RFD 2195.
+  (
+    timeout 30 tailscale up \
+        --authkey="${TS_AUTHKEY}" \
+        --hostname=weftspun-bao \
+        --advertise-tags=tag:fly-bao \
+        --accept-dns=false \
+      || echo "WARN: tailscale up failed or timed out; Bao continues without Tailscale"
+  ) &
+  disown %1 2>/dev/null || true
 else
   echo "TS_AUTHKEY not set; Tailscale sidecar not started"
 fi
