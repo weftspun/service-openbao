@@ -17,12 +17,33 @@ RUN GOFLAGS=-tags=foundationdb go get github.com/apple/foundationdb/bindings/go@
 
 RUN CGO_ENABLED=1 go build -tags 'foundationdb openbao' -o /usr/bin/bao .
 
+# service-bao-sqlite-fdb: OpenBao secrets engine that embeds fabric-store's
+# SQLite VFS (fdb_vfs.c). Runs alongside Bao against the same FDB cluster.
+# The binary lands unregistered in /bao/plugins/; an operator runs
+# `bao plugin register` + `bao secrets enable` once, post-deploy.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libsqlite3-dev pkg-config && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /plugin-build
+ARG CACHEBUST_PLUGIN=1
+RUN git clone --depth 1 https://github.com/weftspun/service-bao-sqlite-fdb.git plugin && \
+    git clone --depth 1 https://github.com/weftspun/datasource-store.git store && \
+    mkdir -p plugin/thirdparty/store && \
+    ln -sf /plugin-build/store/fdb_vfs.c  plugin/thirdparty/store/fdb_vfs.c && \
+    ln -sf /plugin-build/store/fdb_keys.h plugin/thirdparty/store/fdb_keys.h
+
+RUN cd plugin && \
+    go mod tidy && \
+    CGO_ENABLED=1 go build -tags libsqlite3 -trimpath -o /usr/bin/sqlite-fdb . && \
+    sha256sum /usr/bin/sqlite-fdb | cut -d' ' -f1 > /usr/bin/sqlite-fdb.sha256
+
 FROM debian:bookworm-slim
 
 ARG FDB_VERSION=7.3.79
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates dumb-init procps openssl && \
+    apt-get install -y --no-install-recommends curl ca-certificates dumb-init procps openssl libsqlite3-0 && \
     curl -fSL "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb" \
       -o /tmp/fdb-clients.deb && \
     dpkg -i /tmp/fdb-clients.deb || true && \
@@ -31,7 +52,9 @@ RUN apt-get update && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/bin/bao /usr/bin/bao
-RUN mkdir -p /bao/config /bao/data /bao/data/tls
+COPY --from=builder /usr/bin/sqlite-fdb        /bao/plugins/sqlite-fdb
+COPY --from=builder /usr/bin/sqlite-fdb.sha256 /bao/plugins/sqlite-fdb.sha256
+RUN mkdir -p /bao/config /bao/data /bao/data/tls /bao/plugins
 
 
 # Tailscale sidecar (RFD 2195)

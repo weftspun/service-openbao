@@ -28,3 +28,7 @@ listener "tcp" {
 api_addr      = "https://weftspun-bao.internal:8200"
 cluster_addr  = "https://weftspun-bao.internal:8201"
 ui            = false
+
+# service-bao-sqlite-fdb is built into the image and lands here. It stays
+# unregistered until an operator runs `bao plugin register` post-deploy.
+plugin_directory = "/bao/plugins"
